@@ -2,7 +2,7 @@
 #include <stdio.h>
 
 #define DEBUG 1
-//#undef DEBUG
+#undef DEBUG
 
 #define DBG_NEWLINE "\n"
 
