@@ -26,6 +26,9 @@ class CoapPDU {
 
 
 	public:
+
+         typedef uint16_t CoapMessageID;
+
 		/// CoAP message types. Note, values only work as enum.
 		enum Type {
 			COAP_CONFIRMABLE=0x00,
@@ -141,22 +144,22 @@ class CoapPDU {
 		uint16_t getMessageID();
 
 		// options
-		int addOption(uint16_t optionNumber, uint16_t optionLength, uint8_t *optionValue);
+        int addOption(uint16_t optionNumber, uint16_t optionLength, const char *optionValue);
 		// gets a list of all options
 		CoapOption* getOptions();
 		int getNumOptions();
 		// shorthand helpers
-		int setURI(char *uri);
-		int setURI(char *uri, int urilen);
-		int getURI(char *dst, int dstlen, int *outLen);
-		int addURIQuery(char *query);
+        int setURI(const char *uri);
+        int setURI(const char *uri, size_t urilen);
+        int getURI(char *dst, int dstlen, int *outLen);
+        int addURIQuery(const char *query);
 
 		// content format helper
 		int setContentFormat(CoapPDU::ContentFormat format);
 
 		// payload
 		uint8_t* mallocPayload(int bytes);
-		int setPayload(uint8_t *value, int len);
+        int setPayload(const uint8_t *value, int len);
 		uint8_t* getPayloadPointer();
 		int getPayloadLength();
 		uint8_t* getPayloadCopy();
@@ -197,7 +200,7 @@ class CoapPDU {
 		// option stuff
 		int findInsertionPosition(uint16_t optionNumber, uint16_t *prevOptionNumber);
 		int computeExtraBytes(uint16_t n);
-		int insertOption(int insertionPosition, uint16_t optionDelta, uint16_t optionValueLength, uint8_t *optionValue);
+        int insertOption(int insertionPosition, uint16_t optionDelta, uint16_t optionValueLength, const char *optionValue);
 		uint16_t getOptionDelta(uint8_t *option);
 		void setOptionDelta(int optionPosition, uint16_t optionDelta);
 		uint16_t getOptionValueLength(uint8_t *option);

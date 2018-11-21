@@ -39,7 +39,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string.h>
 #include "cantcoap.h"
 #include "arpa/inet.h"
-#include "sysdep.h"
+//#include "sysdep.h"
+
+#define endian_store16(to, num) \
+    do { uint16_t val = htons(num); memcpy(to, &val, 2); } while(0)
 
 /// Memory-managed constructor. Buffer for PDU is dynamically sized and allocated by the object.
 /**
@@ -62,7 +65,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 CoapPDU::CoapPDU() {
 	// pdu
-	_pdu = (uint8_t*)calloc(4,sizeof(uint8_t));
+    _pdu = reinterpret_cast<uint8_t*>(calloc(4,sizeof(uint8_t)));
 	_pduLength = 4;
 	_bufferLength = _pduLength;
 
@@ -71,7 +74,7 @@ CoapPDU::CoapPDU() {
 	_maxAddedOptionNumber = 0;
 
 	// payload
-	_payloadPointer = NULL;
+    _payloadPointer = nullptr;
 	_payloadLength = 0;
 
 	_constructedFromBuffer = 0;
@@ -158,7 +161,7 @@ CoapPDU::CoapPDU(uint8_t *buffer, int bufferLength, int pduLength) {
 	_maxAddedOptionNumber = 0;
 
 	// payload
-	_payloadPointer = NULL;
+    _payloadPointer = nullptr;
 	_payloadLength = 0;
 }
 
@@ -185,7 +188,7 @@ CoapPDU::CoapPDU(uint8_t *buffer, int bufferLength, int pduLength) {
  */
 int CoapPDU::reset() {
 	// pdu
-	memset(_pdu,0x00,_bufferLength);
+    memset(_pdu,0x00,static_cast<size_t>(_bufferLength));
 	// packet always has at least a header
 	_pduLength = 4;
 
@@ -193,7 +196,7 @@ int CoapPDU::reset() {
 	_numOptions = 0;
 	_maxAddedOptionNumber = 0;
 	// payload
-	_payloadPointer = NULL;
+    _payloadPointer = nullptr;
 	_payloadLength = 0;
 	return 0;
 }
@@ -299,7 +302,7 @@ int CoapPDU::validate() {
 					return 1;
 				}
 				// payload marker but no payload
-				_payloadPointer = NULL;
+                _payloadPointer = nullptr;
 				_payloadLength = 0;
 				DBG("Payload marker but no payload.");
 				return 0;
@@ -315,7 +318,7 @@ int CoapPDU::validate() {
 			DBG("Option header byte appears sane: 0x%x%x",upperNibble,lowerNibble);
 		} else {
 			DBG("No more data. No payload.");
-			_payloadPointer = NULL;
+            _payloadPointer = nullptr;
 			_payloadLength = 0;
 			_numOptions = numOptions;
 			return 1;
@@ -366,8 +369,6 @@ int CoapPDU::validate() {
 		// inc number of options XXX
 		numOptions++;
 	}
-
-	return 1;
 }
 
 /// Destructor. Does not free buffer if constructor passed an external buffer.
@@ -412,7 +413,7 @@ void CoapPDU::setPDULength(int len) {
 /**
  * Calls CoapPDU::setURI(uri,strlen(uri).
  */
-int CoapPDU::setURI(char *uri) {
+int CoapPDU::setURI(const char *uri) {
 	return setURI(uri,strlen(uri));
 }
 
@@ -440,18 +441,18 @@ int CoapPDU::setURI(char *uri) {
  *
  * \return 1 on success, 0 on failure.
  */
-int CoapPDU::setURI(char *uri, int urilen) {
+int CoapPDU::setURI(const char *uri, size_t urilen) {
 	// only '/', '?', '&' and ascii chars allowed
 
 	// sanitation
-	if(urilen<=0||uri==NULL) {
-		DBG("Null or zero-length uri passed.");
+    if(urilen<=0||uri==nullptr) {
+        DBG("nullptr or zero-length uri passed.");
 		return 1;
 	}
 
 	// single character URI path (including '/' case)
 	if(urilen==1) {
-		addOption(COAP_OPTION_URI_PATH,1,(uint8_t*)uri);
+        addOption(COAP_OPTION_URI_PATH,1,uri);
 		return 0;
 	}
 
@@ -460,8 +461,8 @@ int CoapPDU::setURI(char *uri, int urilen) {
 	// and then process the query params
 
 	// local vars
-	char *startP=uri,*endP=NULL;
-	int oLen = 0;
+    const char *startP = uri, *endP = nullptr;
+    long int oLen = 0;
 	char splitChar = '/';
 	int queryStageTriggered = 0;
 	uint16_t optionType = COAP_OPTION_URI_PATH;
@@ -481,12 +482,12 @@ int CoapPDU::setURI(char *uri, int urilen) {
 		endP = strchr(startP,splitChar);
 
 		// might not be another slash
-		if(endP==NULL) {
+        if(endP==nullptr) {
 			DBG("Ending out of slash");
 			// check if there is a ?
 			endP = strchr(startP,'?');
 			// done if no queries
-			if(endP==NULL) {
+            if(endP==nullptr) {
 				endP = uri+urilen;
 			} else {
 				queryStageTriggered = 1;
@@ -505,7 +506,7 @@ int CoapPDU::setURI(char *uri, int urilen) {
 		#endif
 
 		// add option
-		if(addOption(optionType,oLen,(uint8_t*)startP)!=0) {
+        if(addOption(optionType,static_cast<uint16_t>(oLen),startP)!=0) {
 			DBG("Error adding option");
 			return 1;
 		}
@@ -529,8 +530,8 @@ int CoapPDU::setURI(char *uri, int urilen) {
  * \param query The uri query to encode.
  * \return 0 on success, 1 on failure.
  */
-int CoapPDU::addURIQuery(char *query) {
-	return addOption(COAP_OPTION_URI_QUERY,strlen(query),(uint8_t*)query);
+int CoapPDU::addURIQuery(const char *query) {
+    return addOption(COAP_OPTION_URI_QUERY,static_cast<uint16_t>(strlen(query)), query);
 }
 
 /// Concatenates any URI_PATH elements and URI_QUERY elements into a single string.
@@ -538,7 +539,7 @@ int CoapPDU::addURIQuery(char *query) {
  * Parses the PDU options and extracts all URI_PATH and URI_QUERY elements,
  * concatenating them into a single string with slash and amphersand separators accordingly.
  *
- * The produced string will be NULL terminated.
+ * The produced string will be nullptr terminated.
  *
  * \param dst Buffer into which to copy the concatenated path elements.
  * \param dstlen Length of buffer.
@@ -547,13 +548,13 @@ int CoapPDU::addURIQuery(char *query) {
  * \return 0 on success, 1 on failure. \b outLen will contain the length of the concatenated elements.
  */
 int CoapPDU::getURI(char *dst, int dstlen, int *outLen) {
-	if(outLen==NULL) {
-		DBG("Output length pointer is NULL");
+    if(outLen==nullptr) {
+        DBG("Output length pointer is nullptr");
 		return 1;
 	}
 
-	if(dst==NULL) {
-		DBG("NULL destination buffer");
+    if(dst==nullptr) {
+        DBG("nullptr destination buffer");
 		*outLen = 0;
 		return 1;
 	}
@@ -573,13 +574,13 @@ int CoapPDU::getURI(char *dst, int dstlen, int *outLen) {
 	}
 	// get options
 	CoapPDU::CoapOption *options = getOptions();
-	if(options==NULL) {
+    if(options==nullptr) {
 		*dst = 0x00;
 		*outLen = 0;
 		return 0;
 	}
 	// iterate over options to construct URI
-	CoapOption *o = NULL;
+    CoapOption *o = nullptr;
 	int bytesLeft = dstlen-1; // space for 0x00
 	int oLen = 0;
 	// add slash at beggining
@@ -626,7 +627,7 @@ int CoapPDU::getURI(char *dst, int dstlen, int *outLen) {
 			}
 
 			// copy URI path or query component
-			memcpy(dst,o->optionValuePointer,oLen);
+            memcpy(dst,o->optionValuePointer,static_cast<size_t>(oLen));
 
 			// adjust counters
 			dst += oLen;
@@ -648,7 +649,7 @@ int CoapPDU::getURI(char *dst, int dstlen, int *outLen) {
 	// remove terminating separator
 	dst--;
 	bytesLeft++;
-	// add null terminating byte (always space since reserved)
+    // add nullptr terminating byte (always space since reserved)
 	*dst = 0x00;
 	*outLen = (dstlen-1)-bytesLeft;
 	free(options);
@@ -693,7 +694,7 @@ void CoapPDU::setType(CoapPDU::Type mt) {
 
 /// Returns the type of the PDU.
 CoapPDU::Type CoapPDU::getType() {
-	return (CoapPDU::Type)(_pdu[0]&0x30);
+    return static_cast<CoapPDU::Type>(_pdu[0]&0x30);
 }
 
 
@@ -719,7 +720,7 @@ int CoapPDU::getTokenLength() {
 /// Returns a pointer to the PDU token.
 uint8_t* CoapPDU::getTokenPointer() {
 	if(getTokenLength()==0) {
-		return NULL;
+        return nullptr;
 	}
 	return &_pdu[4];
 }
@@ -733,8 +734,8 @@ uint8_t* CoapPDU::getTokenPointer() {
  */
 int CoapPDU::setToken(uint8_t *token, uint8_t tokenLength) {
 	DBG("Setting token");
-	if(token==NULL) {
-		DBG("NULL pointer passed as token reference");
+    if(token==nullptr) {
+        DBG("nullptr pointer passed as token reference");
 		return 1;
 	}
 
@@ -744,14 +745,14 @@ int CoapPDU::setToken(uint8_t *token, uint8_t tokenLength) {
 	}
 
 	// if tokenLength has not changed, just copy the new value
-	uint8_t oldTokenLength = getTokenLength();
+    uint8_t oldTokenLength = static_cast<uint8_t>(getTokenLength());
 	if(tokenLength==oldTokenLength) {
-		memcpy((void*)&_pdu[4],token,tokenLength);
+        memcpy(reinterpret_cast<void*>(&_pdu[4]),token,tokenLength);
 		return 0;
 	}
 
 	// otherwise compute new length of PDU
-	uint8_t oldPDULength = _pduLength;
+    uint8_t oldPDULength = static_cast<uint8_t>(_pduLength);
 	_pduLength -= oldTokenLength;
 	_pduLength += tokenLength;
 
@@ -760,8 +761,8 @@ int CoapPDU::setToken(uint8_t *token, uint8_t tokenLength) {
 	if(_pduLength>oldPDULength) {
 		// new PDU is bigger, need to allocate space for new PDU
 		if(!_constructedFromBuffer) {
-			uint8_t *newMemory = (uint8_t*)realloc(_pdu,_pduLength);
-			if(newMemory==NULL) {
+            uint8_t *newMemory = reinterpret_cast<uint8_t*>(realloc(_pdu,static_cast<size_t>(_pduLength)));
+            if(newMemory==nullptr) {
 				// malloc failed
 				DBG("Failed to allocate memory for token");
 				_pduLength = oldPDULength;
@@ -785,7 +786,7 @@ int CoapPDU::setToken(uint8_t *token, uint8_t tokenLength) {
 		shiftPDUUp(shiftOffset,shiftAmount);
 
 		// now copy the token into the new space and set official token length
-		memcpy((void*)&_pdu[4],token,tokenLength);
+        memcpy(reinterpret_cast<void*>(&_pdu[4]),token,tokenLength);
 		setTokenLength(tokenLength);
 
 		// and return success
@@ -793,7 +794,7 @@ int CoapPDU::setToken(uint8_t *token, uint8_t tokenLength) {
 	}
 
 	// new PDU is smaller, copy the new token value over the old one
-	memcpy((void*)&_pdu[4],token,tokenLength);
+    memcpy(reinterpret_cast<void*>(&_pdu[4]),token,tokenLength);
 	// and shift everything after the new token down
 	int startLocation = COAP_HDR_SIZE+tokenLength;
 	int shiftOffset = oldPDULength-_pduLength;
@@ -801,8 +802,8 @@ int CoapPDU::setToken(uint8_t *token, uint8_t tokenLength) {
 	shiftPDUDown(startLocation,shiftOffset,shiftAmount);
 	// then reduce size of buffer
 	if(!_constructedFromBuffer) {
-		uint8_t *newMemory = (uint8_t*)realloc(_pdu,_pduLength);
-		if(newMemory==NULL) {
+        uint8_t *newMemory = reinterpret_cast<uint8_t*>(realloc(_pdu,static_cast<size_t>(_pduLength)));
+        if(newMemory==nullptr) {
 			// malloc failed, PDU in inconsistent state
 			DBG("Failed to shrink PDU for new token. PDU probably broken");
 			return 1;
@@ -824,7 +825,7 @@ void CoapPDU::setCode(CoapPDU::Code code) {
 
 /// Gets the CoAP response code
 CoapPDU::Code CoapPDU::getCode() {
-	return (CoapPDU::Code)_pdu[1];
+    return static_cast<CoapPDU::Code>(_pdu[1]);
 }
 
 
@@ -906,9 +907,11 @@ int CoapPDU::setMessageID(uint16_t messageID) {
 /// Returns the 16 bit message ID of the PDU.
 uint16_t CoapPDU::getMessageID() {
 	// mesasge ID is stored in network byteorder
-	uint8_t *from = &_pdu[2];
-	uint16_t messageID = endian_load16(uint16_t, from);
-	return messageID;
+    uint8_t *from = &_pdu[2];
+    uint16_t messageID = 0;
+    memcpy(&messageID, from, sizeof (messageID));
+
+    return ntohs(messageID);
 }
 
 /// Returns the length of the PDU.
@@ -932,14 +935,14 @@ CoapPDU::CoapOption* CoapPDU::getOptions() {
 	int totalLength = 0;
 
 	if(_numOptions==0) {
-		return NULL;
+        return nullptr;
 	}
 
 	// malloc space for options
-	CoapOption *options = (CoapOption*)malloc(_numOptions*sizeof(CoapOption));
-	if(options==NULL) {
+    CoapOption *options = reinterpret_cast<CoapOption*>(malloc(static_cast<size_t>(_numOptions)*sizeof(CoapOption)));
+    if(options==nullptr) {
 		DBG("Failed to allocate memory for options.");
-		return NULL;
+        return nullptr;
 	}
 
 	// first option occurs after token
@@ -981,7 +984,7 @@ CoapPDU::CoapOption* CoapPDU::getOptions() {
  * \param optionValue A pointer to the byte sequence that is the option payload (bytes will be copied).
  * \return 0 on success, 1 on failure.
  */
-int CoapPDU::addOption(uint16_t insertedOptionNumber, uint16_t optionValueLength, uint8_t *optionValue) {
+int CoapPDU::addOption(uint16_t insertedOptionNumber, uint16_t optionValueLength, const char *optionValue) {
 	// this inserts the option in memory, and re-computes the deltas accordingly
 	// prevOption <-- insertionPosition
 	// nextOption
@@ -993,10 +996,10 @@ int CoapPDU::addOption(uint16_t insertedOptionNumber, uint16_t optionValueLength
 
 	// compute option delta length
 	uint16_t optionDelta = insertedOptionNumber-prevOptionNumber;
-	uint8_t extraDeltaBytes = computeExtraBytes(optionDelta);
+    uint8_t extraDeltaBytes = static_cast<uint8_t>(computeExtraBytes(optionDelta));
 
 	// compute option length length
-	uint16_t extraLengthBytes = computeExtraBytes(optionValueLength);
+    uint16_t extraLengthBytes = static_cast<uint8_t>(computeExtraBytes(optionValueLength));
 
 	// compute total length of option
 	uint16_t optionLength = COAP_OPTION_HDR_BYTE + extraDeltaBytes + extraLengthBytes + optionValueLength;
@@ -1011,8 +1014,8 @@ int CoapPDU::addOption(uint16_t insertedOptionNumber, uint16_t optionValueLength
 		int oldPDULength = _pduLength;
 		_pduLength += optionLength;
 		if(!_constructedFromBuffer) {
-			uint8_t *newMemory = (uint8_t*)realloc(_pdu,_pduLength);
-			if(newMemory==NULL) {
+            uint8_t *newMemory = reinterpret_cast<uint8_t*>(realloc(_pdu,static_cast<size_t>(_pduLength)));
+            if(newMemory==nullptr) {
 				DBG("Failed to allocate memory for option.");
 				_pduLength = oldPDULength;
 				// malloc failed
@@ -1041,11 +1044,11 @@ int CoapPDU::addOption(uint16_t insertedOptionNumber, uint16_t optionValueLength
 	// option, to avoid having to do two mallocs, first get info about this option
 	int nextOptionDelta = getOptionDelta(&_pdu[insertionPosition]);
 	int nextOptionNumber = prevOptionNumber + nextOptionDelta;
-	int nextOptionDeltaBytes = computeExtraBytes(nextOptionDelta);
+    int nextOptionDeltaBytes = computeExtraBytes(static_cast<uint16_t>(nextOptionDelta));
 	DBG("nextOptionDeltaBytes: %d",nextOptionDeltaBytes);
 	// recompute option delta, relative to inserted option
 	int newNextOptionDelta = nextOptionNumber-insertedOptionNumber;
-	int newNextOptionDeltaBytes = computeExtraBytes(newNextOptionDelta);
+    int newNextOptionDeltaBytes = computeExtraBytes(static_cast<uint16_t>(newNextOptionDelta));
 	DBG("newNextOptionDeltaBytes: %d",newNextOptionDeltaBytes);
 	// determine adjustment
 	int optionDeltaAdjustment = newNextOptionDeltaBytes-nextOptionDeltaBytes;
@@ -1058,8 +1061,8 @@ int CoapPDU::addOption(uint16_t insertedOptionNumber, uint16_t optionValueLength
 	_pduLength += mallocLength;
 
 	if(!_constructedFromBuffer) {
-		uint8_t *newMemory = (uint8_t*)realloc(_pdu,_pduLength);
-		if(newMemory==NULL) {
+        uint8_t *newMemory = reinterpret_cast<uint8_t*>(realloc(_pdu,static_cast<size_t>(_pduLength)));
+        if(newMemory==nullptr) {
 			DBG("Failed to allocate memory for option");
 			_pduLength = oldPDULength;
 			return 1;
@@ -1087,7 +1090,7 @@ int CoapPDU::addOption(uint16_t insertedOptionNumber, uint16_t optionValueLength
 	_pdu[nextHeaderPos-optionDeltaAdjustment] = _pdu[nextHeaderPos];
 	nextHeaderPos -= optionDeltaAdjustment;
 	// and set the new value
-	setOptionDelta(nextHeaderPos, newNextOptionDelta);
+    setOptionDelta(nextHeaderPos, static_cast<uint16_t>(newNextOptionDelta));
 
 	// new option shorter
 	// p p n n x x x x x
@@ -1125,22 +1128,22 @@ int CoapPDU::addOption(uint16_t insertedOptionNumber, uint16_t optionValueLength
  *
  * \note The pointer returned points into the PDU buffer.
  * \param len The length of the payload buffer to allocate.
- * \return Either a pointer to the payload buffer, or NULL if there wasn't enough space / allocation failed.
+ * \return Either a pointer to the payload buffer, or nullptr if there wasn't enough space / allocation failed.
  */
 uint8_t* CoapPDU::mallocPayload(int len) {
 	DBG("Entering mallocPayload");
 	// sanity checks
 	if(len==0) {
 		DBG("Cannot allocate a zero length payload");
-		return NULL;
+        return nullptr;
 	}
 
 	// further sanity
 	if(len==_payloadLength) {
 		DBG("Space for payload of specified length already exists");
-		if(_payloadPointer==NULL) {
-			DBG("Garbage PDU. Payload length is %d, but existing _payloadPointer NULL",_payloadLength);
-			return NULL;
+        if(_payloadPointer==nullptr) {
+            DBG("Garbage PDU. Payload length is %d, but existing _payloadPointer nullptr",_payloadLength);
+            return nullptr;
 		}
 		return _payloadPointer;
 	}
@@ -1161,10 +1164,10 @@ uint8_t* CoapPDU::mallocPayload(int len) {
 	// make space for payload (and payload marker if necessary)
 	int newLen = _pduLength+payloadSpace+markerSpace;
 	if(!_constructedFromBuffer) {
-		uint8_t* newPDU = (uint8_t*)realloc(_pdu,newLen);
-		if(newPDU==NULL) {
+        uint8_t* newPDU = reinterpret_cast<uint8_t*>(realloc(static_cast<uint8_t*>(_pdu),static_cast<uint8_t>(newLen)));
+        if(newPDU==nullptr) {
 			DBG("Cannot allocate (or shrink) space for payload");
-			return NULL;
+            return nullptr;
 		}
 		_pdu = newPDU;
 		_bufferLength = newLen;
@@ -1173,12 +1176,12 @@ uint8_t* CoapPDU::mallocPayload(int len) {
 		DBG("newLen: %d, _bufferLength: %d",newLen,_bufferLength);
 		if(newLen>_bufferLength) {
 			DBG("Buffer too small to contain desired payload, needed %d, got %d.",newLen-_pduLength,_bufferLength-_pduLength);
-			return NULL;
+            return nullptr;
 		}
 	}
 
 	// deal with fresh allocation case separately
-	if(_payloadPointer==NULL) {
+    if(_payloadPointer==nullptr) {
 		// set payload marker
 		_pdu[_pduLength] = 0xFF;
 		// payload at end of old PDU
@@ -1207,20 +1210,24 @@ uint8_t* CoapPDU::mallocPayload(int len) {
  * \param len Length of payload byte sequence.
  * \return 0 on success, 1 on failure.
  */
-int CoapPDU::setPayload(uint8_t *payload, int len) {
-	if(payload==NULL) {
-		DBG("NULL payload pointer.");
+int CoapPDU::setPayload(const uint8_t *payload, int len) {
+    if(len == 0){
+        return 0;
+    }
+
+    if(payload==nullptr) {
+        DBG("nullptr payload pointer.");
 		return 1;
 	}
 
 	uint8_t *payloadPointer = mallocPayload(len);
-	if(payloadPointer==NULL) {
+    if(payloadPointer==nullptr) {
 		DBG("Allocation of payload failed");
 		return 1;
 	}
 
 	// copy payload contents
-	memcpy(payloadPointer,payload,len);
+    memcpy(payloadPointer,payload, static_cast<uint8_t>(len));
 
 	return 0;
 }
@@ -1238,18 +1245,18 @@ int CoapPDU::getPayloadLength() {
 /// Returns a pointer to a buffer which is a copy of the payload buffer (dynamically allocated).
 uint8_t* CoapPDU::getPayloadCopy() {
 	if(_payloadLength==0) {
-		return NULL;
+        return nullptr;
 	}
 
 	// malloc space for copy
-	uint8_t *payload = (uint8_t*)malloc(_payloadLength);
-	if(payload==NULL) {
+    uint8_t *payload = reinterpret_cast<uint8_t*>(malloc(static_cast<uint8_t>(_payloadLength)));
+    if(payload==nullptr) {
 		DBG("Unable to allocate memory for payload");
-		return NULL;
+        return nullptr;
 	}
 
 	// copy and return
-	memcpy(payload,_payloadPointer,_payloadLength);
+    memcpy(payload,_payloadPointer,static_cast<uint8_t>(_payloadLength));
 	return payload;
 }
 
@@ -1269,18 +1276,18 @@ uint8_t* CoapPDU::getPayloadCopy() {
  */
 int CoapPDU::setContentFormat(CoapPDU::ContentFormat format) {
 	if(format==0) {
-		// minimal representation means null option value
-		if(addOption(CoapPDU::COAP_OPTION_CONTENT_FORMAT,0,NULL)!=0) {
+        // minimal representation means nullptr option value
+        if(addOption(CoapPDU::COAP_OPTION_CONTENT_FORMAT,0,nullptr)!=0) {
 			DBG("Error setting content format");
 			return 1;
 		}
 		return 0;
 	}
 
-	uint8_t c[2];
+    char c[2];
 
 	// just use 1 byte if can do it
-	if((uint16_t)format <= 0xffu) {
+    if(static_cast<uint16_t>(format) <= 0xffu) {
 		c[0] = format;
 		if(addOption(CoapPDU::COAP_OPTION_CONTENT_FORMAT,1,c)!=0) {
 			DBG("Error setting content format");
@@ -1289,7 +1296,7 @@ int CoapPDU::setContentFormat(CoapPDU::ContentFormat format) {
 		return 0;
 	}
 
-	uint8_t *to = c;
+    char *to = c;
 	endian_store16(to, format);
 	if(addOption(CoapPDU::COAP_OPTION_CONTENT_FORMAT,2,c)!=0) {
 		DBG("Error setting content format");
@@ -1363,9 +1370,13 @@ uint16_t CoapPDU::getOptionValueLength(uint8_t *option) {
 	if(length==13) {
 		return (option[offset]+13);
 	} else {
-		uint8_t *from = &option[offset];
-		uint16_t value = endian_load16(uint16_t, from);
-		return value+269;
+        //uint8_t *from = &option[offset];
+        //uint16_t *value = nullptr;
+
+        uint16_t new_value = 0;
+        memcpy(&new_value, &option[offset], sizeof (new_value));
+
+        return ntohs(new_value)+269;
 	}
 
 }
@@ -1383,9 +1394,12 @@ uint16_t CoapPDU::getOptionDelta(uint8_t *option) {
 		// single byte option delta
 		return (option[1]+13);
 	} else if(delta==14) {
-		uint8_t *from = &option[1];
-		uint16_t value = endian_load16(uint16_t, from);
-		return value+269;
+        uint8_t *from = &option[1];
+        uint16_t new_value = 0;
+        memcpy(&new_value, from, sizeof (new_value));
+
+        return ntohs(new_value)+269;
+
 	} else {
 		// should only ever occur in payload marker
 		return delta;
@@ -1491,7 +1505,7 @@ int CoapPDU::insertOption(
 	int insertionPosition,
 	uint16_t optionDelta,
 	uint16_t optionValueLength,
-	uint8_t *optionValue) {
+    const char *optionValue) {
 
 	int headerStart = insertionPosition;
 
@@ -1649,7 +1663,7 @@ void CoapPDU::printHuman() {
 			INFO("5.05 Proxying Not Supported");
 		break;
 		default:
-			INFO("Undefined Code %u",(unsigned)(getCode()));
+            INFO("Undefined Code %u",static_cast<unsigned>(getCode()));
 	}
 
 	// print message ID
@@ -1671,7 +1685,7 @@ void CoapPDU::printHuman() {
 
 	// print options
 	CoapPDU::CoapOption* options = getOptions();
-	if(options==NULL) {
+    if(options==nullptr) {
 		INFO("NO options");
 	} else {
 		INFO("%d options:",_numOptions);
@@ -1740,13 +1754,13 @@ void CoapPDU::printHuman() {
 				INFO("SIZE2");
 			break;
 			default:
-				INFO("Unknown option %u",(unsigned)options[i].optionNumber);
+                INFO("Unknown option %u",static_cast<unsigned>(options[i].optionNumber));
 			break;
 		}
 		INFO("   Value length: %u",options[i].optionValueLength);
 		INFOX("   Value: \"");
 		for(int j=0; j<options[i].optionValueLength; j++) {
-			char c = options[i].optionValuePointer[j];
+            char c = static_cast<char>(options[i].optionValuePointer[j]);
 			if((c>='!'&&c<='~')||c==' ') {
 				INFOX("%c",c);
 			} else {
@@ -1763,7 +1777,7 @@ void CoapPDU::printHuman() {
 		INFO("Payload of %d bytes",_payloadLength);
 		INFOX("   Value: \"");
 		for(int j=0; j<_payloadLength; j++) {
-			char c = _payloadPointer[j];
+            char c = static_cast<char>(_payloadPointer[j]);
 			if((c>='!'&&c<='~')||c==' ') {
 				INFOX("%c",c);
 			} else {
@@ -1798,7 +1812,7 @@ void CoapPDU::printOptionHuman(uint8_t *option) {
 	int totalLength = 1+extraDeltaBytes+extraValueLengthBytes+optionValueLength;
 
 	if(totalLength>_pduLength) {
-		totalLength = &_pdu[_pduLength-1]-option;
+        totalLength = static_cast<int>(&_pdu[_pduLength-1]-option);
 		DBG("New length: %u",totalLength);
 	}
 
@@ -1901,5 +1915,5 @@ void CoapPDU::printBinary(uint8_t b) {
 
 /// Dumps the PDU as a byte sequence to stdout.
 void CoapPDU::print() {
-	fwrite(_pdu,1,_pduLength,stdout);
+    fwrite(_pdu,1,static_cast<uint8_t>(_pduLength),stdout);
 }
